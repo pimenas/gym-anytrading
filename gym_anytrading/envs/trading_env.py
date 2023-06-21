@@ -1,6 +1,6 @@
-import gym
-from gym import spaces
-from gym.utils import seeding
+from gymnasium.utils import seeding
+from gymnasium import spaces
+import gymnasium as gym
 import numpy as np
 from enum import Enum
 import matplotlib.pyplot as plt
@@ -21,16 +21,15 @@ class Positions(Enum):
 
 class TradingEnv(gym.Env):
 
-    metadata = {'render.modes': ['human']}
+    metadata = {'render_modes': ['human'], 'render_fps': 4 }
 
     def __init__(self, df, window_size):
         assert df.ndim == 2
 
-        self.seed()
         self.df = df
         self.window_size = window_size
         self.prices, self.signal_features = self._process_data()
-        self.shape = (window_size, self.signal_features.shape[1])
+        self.shape = (window_size*2,)
 
         # spaces
         self.action_space = spaces.Discrete(len(Actions))
@@ -49,13 +48,10 @@ class TradingEnv(gym.Env):
         self._first_rendering = None
         self.history = None
 
+    def reset(self, seed=None, options=None):
+        # We need the following line to seed self.np_random
+        super().reset(seed=seed)
 
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
-
-
-    def reset(self):
         self._done = False
         self._current_tick = self._start_tick
         self._last_trade_tick = self._current_tick - 1
@@ -65,6 +61,7 @@ class TradingEnv(gym.Env):
         self._total_profit = 1.  # unit
         self._first_rendering = True
         self.history = {}
+
         return self._get_observation()
 
 
@@ -90,19 +87,23 @@ class TradingEnv(gym.Env):
             self._last_trade_tick = self._current_tick
 
         self._position_history.append(self._position)
-        observation = self._get_observation()
+        observation, info = self._get_observation()
+        self._update_history(info)
+
+        terminated = self._done
+        truncated = False
+
+        return observation, step_reward, terminated, truncated, info
+
+
+    def _get_observation(self):
         info = dict(
             total_reward = self._total_reward,
             total_profit = self._total_profit,
             position = self._position.value
         )
-        self._update_history(info)
 
-        return observation, step_reward, self._done, info
-
-
-    def _get_observation(self):
-        return self.signal_features[(self._current_tick-self.window_size+1):self._current_tick+1]
+        return self.signal_features[(self._current_tick-self.window_size+1):self._current_tick+1].ravel(), info
 
 
     def _update_history(self, info):
